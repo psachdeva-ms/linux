@@ -1328,6 +1328,7 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 	char c;
 	int rc;
 
+	_printk("we are function to close all deferred closes\n");
 	rc = get_user(c, buffer);
 	if (rc)
 		return rc;
@@ -1338,6 +1339,7 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
 
+	_printk("going in list\n");
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
@@ -1349,6 +1351,7 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 		}
 	}
 	spin_unlock(&cifs_tcp_ses_lock);
+	_printk("done with the closes");
 	return 0;
 }
 
