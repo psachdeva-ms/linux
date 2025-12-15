@@ -1326,13 +1326,14 @@ static struct list_head* get_all_tcons(void)
 	struct TCP_Server_Info *server;
 	struct cifs_ses *ses;
 	struct cifs_tcon *tcon;
-	struct global_tcon_list *tree_con_list;
+	struct global_tcon_list *tree_con_list, *tmp_tree_con_list;
 	struct list_head *tcon_head;
 
 	tcon_head = kmalloc(sizeof(struct list_head), GFP_KERNEL);
 	if (tcon_head == NULL)
 		return NULL;
 
+	INIT_LIST_HEAD(tcon_head);
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
@@ -1343,7 +1344,7 @@ static struct list_head* get_all_tcons(void)
 					kmalloc(sizeof(struct global_tcon_list),
 						GFP_ATOMIC);
 				if (tree_con_list == NULL)
-					break;
+					goto tcon_alloc_fail;
 				tree_con_list->tcon = tcon;
 				list_add_tail(&tree_con_list->list, tcon_head);
 			}
@@ -1351,6 +1352,16 @@ static struct list_head* get_all_tcons(void)
 	}
 	spin_unlock(&cifs_tcp_ses_lock);
 	return tcon_head;
+
+tcon_alloc_fail:
+	spin_unlock(&cifs_tcp_ses_lock);
+	list_for_each_entry_safe(tree_con_list, tmp_tree_con_list, tcon_head,
+				 list) {
+		list_del(&tree_con_list->list);
+		kfree(tree_con_list);
+	}
+	kfree(tcon_head);
+	return NULL;
 }
 
 static ssize_t close_all_deferred_close_files(struct file *file,
