@@ -1345,14 +1345,14 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
 			if (cifs_ses_exiting(ses))
 				continue;
-			list_for_each_entry(tcon, &ses->tcon_list, tcon_list)
+			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
 				cifs_close_all_deferred_files(tcon);
-
+			}
 		}
 	}
 	spin_unlock(&cifs_tcp_ses_lock);
 	_printk("done with the closes");
-	return 0;
+	return count;
 }
 
 static int show_all_deferred_close_files(struct seq_file *m, void *v)
