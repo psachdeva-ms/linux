@@ -1321,12 +1321,46 @@ static const struct proc_ops cifs_mount_params_proc_ops = {
 	/* .proc_write	= cifs_mount_params_proc_write, */
 };
 
+static struct list_head* get_all_tcons(void)
+{
+	struct TCP_Server_Info *server;
+	struct cifs_ses *ses;
+	struct cifs_tcon *tcon;
+	struct global_tcon_list *tree_con_list;
+	struct list_head *tcon_head;
+
+	tcon_head = kmalloc(sizeof(struct list_head), GFP_KERNEL);
+	if (tcon_head == NULL)
+		return NULL;
+
+	spin_lock(&cifs_tcp_ses_lock);
+	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
+		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
+			if (cifs_ses_exiting(ses))
+				continue;
+			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
+				tree_con_list =
+					kmalloc(sizeof(struct global_tcon_list),
+						GFP_ATOMIC);
+				if (tree_con_list == NULL)
+					break;
+				tree_con_list->tcon = tcon;
+				list_add_tail(&tree_con_list->list, tcon_head);
+			}
+		}
+	}
+	spin_unlock(&cifs_tcp_ses_lock);
+	return tcon_head;
+}
+
 static ssize_t close_all_deferred_close_files(struct file *file,
 					  const char __user *buffer,
 					  size_t count, loff_t *ppos)
 {
 	char c;
 	int rc;
+	struct global_tcon_list *tmp_list, *tmp_next_list;
+	struct list_head *tcon_head;
 
 	_printk("we are function to close all deferred closes\n");
 	rc = get_user(c, buffer);
@@ -1335,30 +1369,26 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 	if (c == '0')
 		return -EINVAL;
 
-	struct TCP_Server_Info *server;
-	struct cifs_ses *ses;
-	struct cifs_tcon *tcon;
+	tcon_head = get_all_tcons();
+	if (tcon_head == NULL)
+		return count;
 
-	_printk("going in list\n");
-	spin_lock(&cifs_tcp_ses_lock);
-	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
-		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
-			if (cifs_ses_exiting(ses))
-				continue;
-			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
-				cifs_close_all_deferred_files(tcon);
-			}
-		}
+	list_for_each_entry_safe(tmp_list, tmp_next_list, tcon_head, list) {
+		cifs_close_all_deferred_files(tmp_list->tcon);
+		list_del(&tmp_list->list);
+		kfree(tmp_list);
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	kfree(tcon_head);
+	_printk("going in list\n");
+
 	_printk("done with the closes");
 	return count;
 }
 
 static int show_all_deferred_close_files(struct seq_file *m, void *v)
 {
-	struct TCP_Server_Info *server;
-	struct cifs_ses *ses;
+	struct global_tcon_list *tmp_list, *tmp_next_list;
+	struct list_head *tcon_head;
 	struct cifs_tcon *tcon;
 	struct cifsFileInfo *cfile;
 
@@ -1371,32 +1401,32 @@ static int show_all_deferred_close_files(struct seq_file *m, void *v)
 	seq_puts(m, " <filename>\n");
 #endif /* CIFS_DEBUG2 */
 
-	spin_lock(&cifs_tcp_ses_lock);
-	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
-		list_for_each_entry(ses, &server->smb_ses_list, smb_ses_list) {
-			if (cifs_ses_exiting(ses))
-				continue;
-			list_for_each_entry(tcon, &ses->tcon_list, tcon_list) {
-				spin_lock(&tcon->open_file_lock);
-				list_for_each_entry(cfile, &tcon->openFileList, tlist) {
-					if (delayed_work_pending(&cfile->deferred)) {
-					    seq_printf(m,
-						"0x%x 0x%llx 0x%llx 0x%x %d %d %d %pd",
-						tcon->tid,
-						ses->Suid,
-						cfile->fid.persistent_fid,
-						cfile->f_flags,
-						cfile->count,
-						cfile->pid,
-						from_kuid(&init_user_ns, cfile->uid),
-						cfile->dentry);
-					    }
-				}
-				spin_unlock(&tcon->open_file_lock);
+	tcon_head = get_all_tcons();
+	if (tcon_head == NULL)
+		return 0;
+
+	list_for_each_entry_safe(tmp_list, tmp_next_list, tcon_head, list) {
+		tcon = tmp_list->tcon;
+		spin_lock(&tcon->open_file_lock);
+		list_for_each_entry(cfile, &tcon->openFileList, tlist) {
+			if (delayed_work_pending(&cfile->deferred)) {
+				seq_printf(
+					m,
+					"0x%x 0x%llx 0x%llx 0x%x %d %d %d %pd",
+					tcon->tid, tcon->ses->Suid,
+					cfile->fid.persistent_fid,
+					cfile->f_flags, cfile->count,
+					cfile->pid,
+					from_kuid(&init_user_ns, cfile->uid),
+					cfile->dentry);
 			}
 		}
+		spin_unlock(&tcon->open_file_lock);
+		list_del(&tmp_list->list);
+		kfree(tmp_list);
 	}
-	spin_unlock(&cifs_tcp_ses_lock);
+	kfree(tcon_head);
+
 	seq_putc(m, '\n');
 	return 0;
 }
