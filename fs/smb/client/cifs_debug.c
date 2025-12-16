@@ -1373,7 +1373,6 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 	struct global_tcon_list *tmp_list, *tmp_next_list;
 	struct list_head *tcon_head;
 
-	_printk("we are function to close all deferred closes\n");
 	rc = get_user(c, buffer);
 	if (rc)
 		return rc;
@@ -1389,10 +1388,8 @@ static ssize_t close_all_deferred_close_files(struct file *file,
 		list_del(&tmp_list->list);
 		kfree(tmp_list);
 	}
-	kfree(tcon_head);
-	_printk("going in list\n");
 
-	_printk("done with the closes");
+	kfree(tcon_head);
 	return count;
 }
 
@@ -1436,9 +1433,10 @@ static int show_all_deferred_close_files(struct seq_file *m, void *v)
 		list_del(&tmp_list->list);
 		kfree(tmp_list);
 	}
-	kfree(tcon_head);
 
+	kfree(tcon_head);
 	seq_putc(m, '\n');
+
 	return 0;
 }
 
